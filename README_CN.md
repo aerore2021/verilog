@@ -87,8 +87,8 @@ python create_verilog_project.py <项目名> "<输入信号> / <输出信号>"
 | 参数 | 说明 | 示例 |
 |------|------|------|
 | `<项目名>` | Module 名称，必须是有效的 Verilog 标识符 | `and_gate`, `counter`, `adder_4bit` |
-| `<输入信号>` | 空格或逗号分隔的输入信号名列表 | `clk rst`, `a b cin` |
-| `<输出信号>` | 空格或逗号分隔的输出信号名列表 | `y`, `sum cout` |
+| `<输入信号>` | 逗号分隔的输入信号名列表 | `clk rst`, `a b cin` |
+| `<输出信号>` | 逗号分隔的输出信号名列表 | `y`, `sum cout` |
 
 **注意**：用 `/` 分隔输入和输出，支持 Verilog 类型修饰符（signed, unsigned, 位宽指示符等）。
 
