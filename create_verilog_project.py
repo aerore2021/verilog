@@ -306,8 +306,8 @@ endmodule
     
     def generate_makefile(self):
         """生成Makefile"""
-        makefile_content = f'''# Verilog 仿真 Makefile
-# 使用 Icarus Verilog 和 VVP
+        makefile_content = f'''# Verilog Simulation Makefile
+# Using Icarus Verilog and VVP
 
 VERILOG_FILES = rtl/{self.project_name}.v sim/{self.project_name}_tb.v
 MODULE_NAME = {self.project_name}_tb
@@ -319,27 +319,27 @@ all: compile simulate view
 
 compile:
 \tiverilog -o $(OUTPUT_NAME).vvp $(VERILOG_FILES)
-\t@echo "✓ 编译完成: $(OUTPUT_NAME).vvp"
+\t@echo "[OK] Compilation done: $(OUTPUT_NAME).vvp"
 
 simulate: compile
 \tvvp $(OUTPUT_NAME).vvp
-\t@echo "✓ 仿真完成，生成波形文件: $(OUTPUT_NAME).vcd"
+\t@echo "[OK] Simulation done: $(OUTPUT_NAME).vcd"
 
 view: simulate
 \tgtkwave $(OUTPUT_NAME).vcd &
-\t@echo "✓ 打开波形查看器"
+\t@echo "[OK] Waveform viewer opened"
 
 clean:
 \trm -f $(OUTPUT_NAME).vvp $(OUTPUT_NAME).vcd
-\t@echo "✓ 清理完成"
+\t@echo "[OK] Clean done"
 
 help:
-\t@echo "可用命令:"
-\t@echo "  make         - 编译、仿真、查看波形（完整流程）"
-\t@echo "  make compile - 仅编译"
-\t@echo "  make simulate- 编译并仿真"
-\t@echo "  make view    - 查看波形文件"
-\t@echo "  make clean   - 清理生成的文件"
+\t@echo "Available commands:"
+\t@echo "  make         - Compile + Simulate + View (full flow)"
+\t@echo "  make compile - Compile only"
+\t@echo "  make simulate- Compile and simulate"
+\t@echo "  make view    - View waveform"
+\t@echo "  make clean   - Clean generated files"
 '''
         makefile_file = self.project_dir / 'Makefile'
         
