@@ -26,18 +26,109 @@ class VerilogProjectGenerator:
         self.project_dir = Path(project_name)
         
     def parse_signals(self, signals):
-        """解析信号字符串"""
+        """
+        解析信号字符串，支持Verilog类型修饰符
+        格式: [type] sig_name [, [type] sig_name, ...]
+        例如: "signed input1, input2" 或 "[7:0] data, clk"
+        """
         parts = signals.split('/')
         
         # 解析输入信号
         self.inputs = []
         if len(parts) > 0:
-            self.inputs = [s.strip() for s in parts[0].strip().split() if s.strip()]
+            self.inputs = self._parse_signal_list(parts[0].strip())
         
         # 解析输出信号
         self.outputs = []
         if len(parts) > 1:
-            self.outputs = [s.strip() for s in parts[1].strip().split() if s.strip()]
+            self.outputs = self._parse_signal_list(parts[1].strip())
+    
+    def _parse_signal_list(self, signal_str):
+        """
+        解析逗号分隔的信号列表，支持类型修饰符
+        例如: "signed a, [7:0] b, c" -> ["signed a", "[7:0] b", "c"]
+        """
+        if not signal_str:
+            return []
+        
+        signals = []
+        # 首先按逗号分割
+        tokens = signal_str.split(',')
+        
+        for token in tokens:
+            token = token.strip()
+            if token:
+                # 每个token可能是: "signed name", "[7:0] name", "signed [7:0] name", 或 "name"
+                sig_with_type = self._extract_signal_with_type(token)
+                if sig_with_type:
+                    signals.append(sig_with_type)
+        
+        return signals
+    
+    def _extract_signal_with_type(self, token_str):
+        """
+        从token中提取信号及其类型修饰符
+        例如:
+        - "signed data" -> "signed data"
+        - "[7:0] data" -> "[7:0] data"  
+        - "data" -> "data"
+        - "signed [7:0] data" -> "signed [7:0] data"
+        """
+        token_str = token_str.strip()
+        
+        if not token_str:
+            return None
+        
+        # 将token按空格分割成parts
+        parts = token_str.split()
+        
+        if len(parts) == 0:
+            return None
+        elif len(parts) == 1:
+            # 只有一个token，检查是否是有效的标识符
+            if self._is_valid_identifier(parts[0]):
+                return parts[0]
+            return None
+        
+        # 多个parts的情况: 最后一个必须是有效的标识符（信号名），前面的是修饰符
+        signal_name = parts[-1]
+        
+        if not self._is_valid_identifier(signal_name):
+            return None
+        
+        # 验证前面的parts是否都是有效的修饰符
+        type_modifiers = parts[:-1]
+        valid_modifiers = {'signed', 'unsigned'}
+        
+        for mod in type_modifiers:
+            # 检查是否是有效的修饰符或者宽度指示符 [7:0]
+            if not (mod in valid_modifiers or (mod.startswith('[') and mod.endswith(']'))):
+                # 如果不是已知修饰符，可能是包含宽度的，需要特殊处理
+                if not self._is_width_spec(mod):
+                    return None
+        
+        # 重新组合：类型修饰符 + 信号名
+        return ' '.join(parts)
+    
+    def _is_width_spec(self, s):
+        """检查是否是宽度指示符，如 [7:0] 或 [3]"""
+        if not (s.startswith('[') and s.endswith(']')):
+            return False
+        # 简单检查：内部应该只有数字、冒号和空格
+        inner = s[1:-1]
+        return all(c.isdigit() or c in ':,[] ' for c in inner)
+    
+    def _is_valid_identifier(self, s):
+        """检查是否是有效的Verilog标识符"""
+        if not s or s[0].isdigit():
+            return False
+        
+        # 排除已知的关键字和修饰符
+        if s.startswith('[') and s.endswith(']'):
+            return False  # 宽度指示符
+        
+        # 必须是字母开头，后面只能是字母、数字或下划线
+        return all(c.isalnum() or c == '_' for c in s) and (s[0].isalpha() or s[0] == '_')
     
     def create_project_structure(self):
         """创建项目目录结构"""
@@ -77,18 +168,14 @@ class VerilogProjectGenerator:
         
         ports = '\n'.join(port_decl) if port_decl else ""
         
-        # 生成输出声明
-        output_decl = '\n'.join([f"    output {sig};" for sig in self.outputs])
+        # 生成输出声明 - 如果信号已经在port中声明了类型，这里就不需要重复声明
+        output_decl = '\n'.join([f"    // output {sig};" for sig in self.outputs]) if self.outputs else "    // 无输出端口"
         
         code = f'''`timescale 1ns/1ps
 
 module {self.project_name} (
 {ports}
 );
-    // ============================================
-    // 输出端口声明
-    // ============================================
-{output_decl if self.outputs else "    // 无输出端口"}
 
     // ============================================
     // 内部信号声明 (需要时添加)
@@ -116,6 +203,15 @@ endmodule
         print(f"✓ 生成测试文件: {tb_file}")
         return tb_file
     
+    def _get_signal_name(self, signal_def):
+        """
+        从信号定义中提取信号名称
+        例如: "signed data" -> "data", "[7:0] addr" -> "addr"
+        """
+        parts = signal_def.split()
+        # 最后一个token是信号名
+        return parts[-1] if parts else signal_def
+    
     def _generate_testbench_code(self):
         """生成Testbench代码"""
         # 生成信号声明
@@ -124,17 +220,23 @@ endmodule
         signal_decl.extend([f"    wire {sig};" for sig in self.outputs])
         signal_decl.append("    integer i;  // 循环计数器")
         
-        # 生成module实例化
+        # 生成module实例化 - 使用信号名称
         port_connections = []
         for sig in self.inputs:
-            port_connections.append(f"        .{sig}({sig})")
+            sig_name = self._get_signal_name(sig)
+            port_connections.append(f"        .{sig_name}({sig_name})")
         for sig in self.outputs:
-            port_connections.append(f"        .{sig}({sig})")
+            sig_name = self._get_signal_name(sig)
+            port_connections.append(f"        .{sig_name}({sig_name})")
         
         port_conn_str = ',\n'.join(port_connections)
         
-        # 生成监控显示
-        monitor_signals = ', '.join(self.inputs + self.outputs)
+        # 生成监控显示 - 使用信号名称
+        input_names = [self._get_signal_name(sig) for sig in self.inputs]
+        output_names = [self._get_signal_name(sig) for sig in self.outputs]
+        all_names = input_names + output_names
+        monitor_signals = ', '.join(all_names)
+        monitor_values = ', ' + ', '.join(all_names) if all_names else ""
         
         code = f'''`timescale 1ns/1ps
 
@@ -163,7 +265,7 @@ module {self.project_name}_tb;
         $dumpvars(0, {self.project_name}_tb);
         
         // 监控器：显示信号变化
-        $monitor("@%4d ns : {monitor_signals}", $time{', ' + ', '.join(self.inputs + self.outputs) if (self.inputs + self.outputs) else ""});
+        $monitor("@%4d ns : {monitor_signals}", $time{monitor_values});
         
         // ============================================
         // 测试用例
@@ -181,7 +283,8 @@ endmodule
         """生成初始化代码"""
         init_lines = []
         for sig in self.inputs:
-            init_lines.append(f"        {sig} = 1'b0;")
+            sig_name = self._get_signal_name(sig)
+            init_lines.append(f"        {sig_name} = 1'b0;")
         return '\n'.join(init_lines) if init_lines else "        // 初始化代码（按需添加）"
     
     def _generate_test_cases(self):
@@ -189,8 +292,12 @@ endmodule
         test_cases = []
         test_cases.append("        // 测试用例1: 基本功能测试")
         test_cases.append("        #10;  // 等待10ns")
-        for sig in self.inputs[:min(2, len(self.inputs))]:  # 最多修改前2个输入
-            test_cases.append(f"        {sig} = ~{sig};  // 翻转信号")
+        
+        # 最多修改前2个输入信号
+        for sig in self.inputs[:min(2, len(self.inputs))]:
+            sig_name = self._get_signal_name(sig)
+            test_cases.append(f"        {sig_name} = ~{sig_name};  // 翻转信号")
+        
         test_cases.append("        #10;  // 观察输出")
         test_cases.append("")
         test_cases.append("        // 添加更多测试用例...")
